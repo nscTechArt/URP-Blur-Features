@@ -1,0 +1,60 @@
+#pragma kernel DownSampleBlur
+#pragma kernel UpSampleBlur
+#pragma kernel LinearLerp
+
+Texture2D _SourceTexture;
+RWTexture2D<half4> _RW_TargetTexture;
+SamplerState sampler_LinearClamp;
+float4 _SourceSize;
+float4 _TargetSize;
+float _Offset;
+
+float3 sampleSource(float2 center, float2 offset)
+{
+	return _SourceTexture.SampleLevel(sampler_LinearClamp, center + offset * _Offset, 0.0f).rgb;
+}
+
+[numthreads(8,8,1)]
+void DownSampleBlur(uint3 id : SV_DispatchThreadID)
+{
+	float2 uv = (float2(id.xy) + 0.5f) * _TargetSize.zw;
+	float2 halfPixel = 0.5f * _TargetSize.zw;
+
+	float3 c = sampleSource(uv, float2(0.0f, 0.0f));
+	float3 tl = sampleSource(uv, halfPixel * float2(-1.0f, +1.0f));
+	float3 tr = sampleSource(uv, halfPixel * float2(+1.0f, +1.0f));
+	float3 bl = sampleSource(uv, halfPixel * float2(-1.0f, -1.0f));
+	float3 br = sampleSource(uv, halfPixel * float2(+1.0f, -1.0f));
+
+	float3 color = (tl + tr + bl + br + c * 4.0f) / 8.0f;
+	_RW_TargetTexture[id.xy] = float4(color, 1.0f);
+}
+
+[numthreads(8, 8, 1)]
+void UpSampleBlur(uint3 id : SV_DispatchThreadID)
+{
+	float2 uv = (float2(id.xy) + 0.5f) * _TargetSize.zw;
+	float2 onePixel = 1.0f * _TargetSize.zw;
+
+	// float3 c = sampleSource(uv, float2(0.0f, 0.0f));
+	float3 t2 = sampleSource(uv, onePixel * float2(+0.0f, +2.0f));
+	float3 b2 = sampleSource(uv, onePixel * float2(+0.0f, -2.0f));
+	float3 l2 = sampleSource(uv, onePixel * float2(-2.0f, +0.0f));
+	float3 r2 = sampleSource(uv, onePixel * float2(+2.0f, +0.0f));
+	float3 tl = sampleSource(uv, onePixel * float2(-1.0f, +1.0f));
+	float3 tr = sampleSource(uv, onePixel * float2(+1.0f, +1.0f));
+	float3 bl = sampleSource(uv, onePixel * float2(-1.0f, -1.0f));
+	float3 br = sampleSource(uv, onePixel * float2(+1.0f, -1.0f));
+
+	float3 color = (t2 + b2 + l2 + r2 + 2.0f * (tl + tr + bl + br)) / 12.0f;
+	_RW_TargetTexture[id.xy] = float4(color, 1.0f);
+}
+
+[numthreads(8, 8, 1)]
+void LinearLerp(uint3 id : SV_DispatchThreadID)
+{
+	half3 sourceTex = _SourceTexture.Load(uint3(id.xy, 0)).rgb;
+	half3 blurredTex = _RW_TargetTexture.Load(uint3(id.xy, 0)).rgb;
+	half3 color = lerp(sourceTex, blurredTex, _Offset);
+	_RW_TargetTexture[id.xy] = float4(color, 1.0f);
+}

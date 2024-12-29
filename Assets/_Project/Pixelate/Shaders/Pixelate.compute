@@ -1,0 +1,41 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> _TemporaryColorTexture;
+float4 _PixelateParams;
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    int textureWidth = _PixelateParams.x;
+    int textureHeight = _PixelateParams.y;
+    int blockSize = _PixelateParams.z;
+    
+    if (id.x >= textureWidth || id.y >= textureHeight) return;
+
+    const float2 startPos = id.xy * blockSize;
+    if (startPos.x >= textureWidth || startPos.y >= textureHeight) return;
+
+    const int blockWidth = min(blockSize, textureWidth - (int)startPos.x);
+    const int blockHeight = min(blockSize, textureHeight - (int)startPos.y);
+    const int pixelCount = blockWidth * blockHeight;
+
+    float4 color = float4(0, 0, 0, 1);
+    for (int i = 0; i < blockWidth; i++)
+    {
+        for (int j = 0; j < blockHeight; j++)
+        {
+            const uint2 pixelPos = uint2(startPos.x + i, startPos.y + j);
+            color += _TemporaryColorTexture[pixelPos];
+        }
+    }
+    color /= pixelCount;
+
+    for (int i = 0; i < blockWidth; i++)
+    {
+        for (int j = 0; j < blockHeight; j++)
+        {
+            const uint2 pixelPos = uint2(startPos.x + i, startPos.y + j);
+            _TemporaryColorTexture[pixelPos] = color;
+        }
+    }
+}
