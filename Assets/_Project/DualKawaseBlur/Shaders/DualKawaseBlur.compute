@@ -5,7 +5,6 @@
 Texture2D _SourceTexture;
 RWTexture2D<half4> _RW_TargetTexture;
 SamplerState sampler_LinearClamp;
-float4 _SourceSize;
 float4 _TargetSize;
 float _Offset;
 
