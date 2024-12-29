@@ -70,7 +70,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   m_Active: 1
   m_Settings:
-    m_RenderPassEvent: 550
     m_DualKawaseBlurShader: {fileID: 7200000, guid: aacf1c5ef6f34eacbbcd47e9146918c1, type: 3}
     m_CopyToFrameBuffer: 1
     m_TargetTextureName: _BlurTexture

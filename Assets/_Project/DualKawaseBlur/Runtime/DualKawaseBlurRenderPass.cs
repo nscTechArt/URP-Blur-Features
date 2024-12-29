@@ -10,7 +10,9 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
         // initialize
         // ----------
         mProfilingSampler = new ProfilingSampler(featureName);
-        renderPassEvent   = settings.m_RenderPassEvent;
+        renderPassEvent   = settings.m_CopyToFrameBuffer
+            ? RenderPassEvent.BeforeRenderingPostProcessing
+            : RenderPassEvent.AfterRenderingSkybox;
         mSettings         = settings;
         
         // shader related
@@ -167,7 +169,7 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
 
     private Vector4 GetTextureSizeParams(Vector2Int size)
     {
-        return new Vector4(size.x, size.y, 1.0f / size.x, 1.0f / size.y);
+        return new Vector4(1.0f / size.x, 1.0f / size.y);
     }
     
     private void DownSampleBlur(CommandBuffer cmd, RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int targetSize)

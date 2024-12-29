@@ -6,7 +6,6 @@ using UnityEngine.Rendering.Universal;
 [Serializable]
 public class DualKawaseBlurSettings
 {
-    public RenderPassEvent m_RenderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
     public ComputeShader   m_DualKawaseBlurShader;
     public bool            m_CopyToFrameBuffer = true;
     public string          m_TargetTextureName = "_BlurTexture";
@@ -29,6 +28,7 @@ public class DualKawaseBlurRenderFeature : ScriptableRendererFeature
     {
         DualKawaseBlur volumeComponent = VolumeManager.instance.stack.GetComponent<DualKawaseBlur>();
         if (!volumeComponent || !volumeComponent.IsActive()) return;
+        if (renderingData.cameraData.cameraType != CameraType.Game) return;
         
         mPass.Setup(volumeComponent);
         renderer.EnqueuePass(mPass);
