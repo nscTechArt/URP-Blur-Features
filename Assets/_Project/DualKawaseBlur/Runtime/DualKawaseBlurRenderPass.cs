@@ -174,51 +174,60 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
     
     private void DownSampleBlur(CommandBuffer cmd, RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int targetSize)
     {
-        // pass data to shader
-        // -------------------
-        cmd.SetComputeTextureParam(mPassShader, mDownSampleKernel, _SourceTexture, source);
-        cmd.SetComputeTextureParam(mPassShader, mDownSampleKernel, _TargetTexture, target);
-        cmd.SetComputeVectorParam(mPassShader, _TargetSize, GetTextureSizeParams(targetSize));
+        using (new ProfilingScope(cmd, new ProfilingSampler("DownSample Blur")))
+        {
+            // pass data to shader
+            // -------------------
+            cmd.SetComputeTextureParam(mPassShader, mDownSampleKernel, _SourceTexture, source);
+            cmd.SetComputeTextureParam(mPassShader, mDownSampleKernel, _TargetTexture, target);
+            cmd.SetComputeVectorParam(mPassShader, _TargetSize, GetTextureSizeParams(targetSize));
         
-        // dispatch shader
-        // ---------------
-        mPassShader.GetKernelThreadGroupSizes(mDownSampleKernel, out uint x, out uint y, out uint _);
-        cmd.DispatchCompute(mPassShader, mDownSampleKernel,
-            Mathf.CeilToInt((float)targetSize.x / x),
-            Mathf.CeilToInt((float)targetSize.y / y),
-            1);
+            // dispatch shader
+            // ---------------
+            mPassShader.GetKernelThreadGroupSizes(mDownSampleKernel, out uint x, out uint y, out uint _);
+            int threadGroupX = Mathf.CeilToInt((float)targetSize.x / x);
+            int threadGroupY = Mathf.CeilToInt((float)targetSize.y / y);
+            cmd.DispatchCompute(mPassShader, mDownSampleKernel, threadGroupX, threadGroupY, 1);
+        }
+        
     }
 
     private void UpSampleBlur(CommandBuffer cmd, RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int targetSize)
     {
-        // pass data to shader
-        // -------------------
-        cmd.SetComputeTextureParam(mPassShader, mUpSampleKernel, _SourceTexture, source);
-        cmd.SetComputeTextureParam(mPassShader, mUpSampleKernel, _TargetTexture, target);
-        cmd.SetComputeVectorParam(mPassShader, _TargetSize, GetTextureSizeParams(targetSize));
+        using (new ProfilingScope(cmd, new ProfilingSampler("UpSample Blur")))
+        {
+            // pass data to shader
+            // -------------------
+            cmd.SetComputeTextureParam(mPassShader, mUpSampleKernel, _SourceTexture, source);
+            cmd.SetComputeTextureParam(mPassShader, mUpSampleKernel, _TargetTexture, target);
+            cmd.SetComputeVectorParam(mPassShader, _TargetSize, GetTextureSizeParams(targetSize));
 
-        // dispatch shader
-        // ---------------
-        mPassShader.GetKernelThreadGroupSizes(mUpSampleKernel, out uint x, out uint y, out uint _);
-        int threadGroupX = Mathf.CeilToInt((float)targetSize.x / x);
-        int threadGroupY = Mathf.CeilToInt((float)targetSize.y / y);
-        cmd.DispatchCompute(mPassShader, mUpSampleKernel, threadGroupX, threadGroupY, 1);
+            // dispatch shader
+            // ---------------
+            mPassShader.GetKernelThreadGroupSizes(mUpSampleKernel, out uint x, out uint y, out uint _);
+            int threadGroupX = Mathf.CeilToInt((float)targetSize.x / x);
+            int threadGroupY = Mathf.CeilToInt((float)targetSize.y / y);
+            cmd.DispatchCompute(mPassShader, mUpSampleKernel, threadGroupX, threadGroupY, 1);
+        }
     }
 
     private void Linear(CommandBuffer cmd, RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int sourceSize, float ratio)
     {
-        // pass data to shader
-        // -------------------
-        cmd.SetComputeTextureParam(mPassShader, mBlendKernel, _SourceTexture, source);
-        cmd.SetComputeTextureParam(mPassShader, mBlendKernel, _TargetTexture, target);
-        cmd.SetComputeFloatParam(mPassShader, _BlendRatio, ratio);
+        using (new ProfilingScope(cmd, new ProfilingSampler("Linear Blend")))
+        {
+            // pass data to shader
+            // -------------------
+            cmd.SetComputeTextureParam(mPassShader, mBlendKernel, _SourceTexture, source);
+            cmd.SetComputeTextureParam(mPassShader, mBlendKernel, _TargetTexture, target);
+            cmd.SetComputeFloatParam(mPassShader, _BlendRatio, ratio);
         
-        // dispatch shader
-        // ---------------
-        mPassShader.GetKernelThreadGroupSizes(mBlendKernel, out uint x, out uint y, out uint _);
-        int threadGroupX = Mathf.CeilToInt((float)sourceSize.x / x);
-        int threadGroupY = Mathf.CeilToInt((float)sourceSize.y / y);
-        cmd.DispatchCompute(mPassShader, mBlendKernel, threadGroupX, threadGroupY, 1);
+            // dispatch shader
+            // ---------------
+            mPassShader.GetKernelThreadGroupSizes(mBlendKernel, out uint x, out uint y, out uint _);
+            int threadGroupX = Mathf.CeilToInt((float)sourceSize.x / x);
+            int threadGroupY = Mathf.CeilToInt((float)sourceSize.y / y);
+            cmd.DispatchCompute(mPassShader, mBlendKernel, threadGroupX, threadGroupY, 1);
+        }
     }
     
     // profiling related
