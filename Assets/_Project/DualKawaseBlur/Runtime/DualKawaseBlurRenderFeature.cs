@@ -33,9 +33,4 @@ public class DualKawaseBlurRenderFeature : ScriptableRendererFeature
         mPass.Setup(volumeComponent);
         renderer.EnqueuePass(mPass);
     }
-
-    protected override void Dispose(bool disposing)
-    {
-        mPass.Dispose();
-    }
 }

@@ -3,14 +3,14 @@
 #pragma kernel LinearLerp
 
 Texture2D _SourceTexture;
-RWTexture2D<half4> _RW_TargetTexture;
+RWTexture2D<half4> _TargetTexture;
 SamplerState sampler_LinearClamp;
 float4 _TargetSize;
-float _Offset;
+float _BlendRatio;
 
-float3 sampleSource(float2 center, float2 offset)
+float3 SampleSource(float2 center, float2 offset)
 {
-	return _SourceTexture.SampleLevel(sampler_LinearClamp, center + offset * _Offset, 0.0f).rgb;
+	return _SourceTexture.SampleLevel(sampler_LinearClamp, center + offset, 0.0f).rgb;
 }
 
 [numthreads(8,8,1)]
@@ -19,14 +19,14 @@ void DownSampleBlur(uint3 id : SV_DispatchThreadID)
 	float2 uv = (float2(id.xy) + 0.5f) * _TargetSize.zw;
 	float2 halfPixel = 0.5f * _TargetSize.zw;
 
-	float3 c = sampleSource(uv, float2(0.0f, 0.0f));
-	float3 tl = sampleSource(uv, halfPixel * float2(-1.0f, +1.0f));
-	float3 tr = sampleSource(uv, halfPixel * float2(+1.0f, +1.0f));
-	float3 bl = sampleSource(uv, halfPixel * float2(-1.0f, -1.0f));
-	float3 br = sampleSource(uv, halfPixel * float2(+1.0f, -1.0f));
+	float3 c = SampleSource(uv, float2(0.0f, 0.0f));
+	float3 tl = SampleSource(uv, halfPixel * float2(-1.0f, +1.0f));
+	float3 tr = SampleSource(uv, halfPixel * float2(+1.0f, +1.0f));
+	float3 bl = SampleSource(uv, halfPixel * float2(-1.0f, -1.0f));
+	float3 br = SampleSource(uv, halfPixel * float2(+1.0f, -1.0f));
 
 	float3 color = (tl + tr + bl + br + c * 4.0f) / 8.0f;
-	_RW_TargetTexture[id.xy] = float4(color, 1.0f);
+	_TargetTexture[id.xy] = float4(color, 1.0f);
 }
 
 [numthreads(8, 8, 1)]
@@ -36,24 +36,24 @@ void UpSampleBlur(uint3 id : SV_DispatchThreadID)
 	float2 onePixel = 1.0f * _TargetSize.zw;
 
 	// float3 c = sampleSource(uv, float2(0.0f, 0.0f));
-	float3 t2 = sampleSource(uv, onePixel * float2(+0.0f, +2.0f));
-	float3 b2 = sampleSource(uv, onePixel * float2(+0.0f, -2.0f));
-	float3 l2 = sampleSource(uv, onePixel * float2(-2.0f, +0.0f));
-	float3 r2 = sampleSource(uv, onePixel * float2(+2.0f, +0.0f));
-	float3 tl = sampleSource(uv, onePixel * float2(-1.0f, +1.0f));
-	float3 tr = sampleSource(uv, onePixel * float2(+1.0f, +1.0f));
-	float3 bl = sampleSource(uv, onePixel * float2(-1.0f, -1.0f));
-	float3 br = sampleSource(uv, onePixel * float2(+1.0f, -1.0f));
+	float3 t2 = SampleSource(uv, onePixel * float2(+0.0f, +2.0f));
+	float3 b2 = SampleSource(uv, onePixel * float2(+0.0f, -2.0f));
+	float3 l2 = SampleSource(uv, onePixel * float2(-2.0f, +0.0f));
+	float3 r2 = SampleSource(uv, onePixel * float2(+2.0f, +0.0f));
+	float3 tl = SampleSource(uv, onePixel * float2(-1.0f, +1.0f));
+	float3 tr = SampleSource(uv, onePixel * float2(+1.0f, +1.0f));
+	float3 bl = SampleSource(uv, onePixel * float2(-1.0f, -1.0f));
+	float3 br = SampleSource(uv, onePixel * float2(+1.0f, -1.0f));
 
 	float3 color = (t2 + b2 + l2 + r2 + 2.0f * (tl + tr + bl + br)) / 12.0f;
-	_RW_TargetTexture[id.xy] = float4(color, 1.0f);
+	_TargetTexture[id.xy] = float4(color, 1.0f);
 }
 
 [numthreads(8, 8, 1)]
 void LinearLerp(uint3 id : SV_DispatchThreadID)
 {
-	half3 sourceTex = _SourceTexture.Load(uint3(id.xy, 0)).rgb;
-	half3 blurredTex = _RW_TargetTexture.Load(uint3(id.xy, 0)).rgb;
-	half3 color = lerp(sourceTex, blurredTex, _Offset);
-	_RW_TargetTexture[id.xy] = float4(color, 1.0f);
+	float3 sourceTex = _SourceTexture.Load(uint3(id.xy, 0)).rgb;
+	float3 blurredTex = _TargetTexture.Load(uint3(id.xy, 0)).rgb;
+	float3 color = lerp(sourceTex, blurredTex, _BlendRatio);
+	_TargetTexture[id.xy] = float4(color, 1.0f);
 }

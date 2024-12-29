@@ -16,9 +16,9 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
         // shader related
         // --------------
         mPassShader           = settings.m_DualKawaseBlurShader;
-        mDownSampleBlurKernel = mPassShader.FindKernel("DownSampleBlur");
-        mUpSampleBlurKernel   = mPassShader.FindKernel("UpSampleBlur");
-        mLinearLerpKernel   = mPassShader.FindKernel("LinearLerp");
+        mDownSampleKernel = mPassShader.FindKernel("DownSampleBlur");
+        mUpSampleKernel   = mPassShader.FindKernel("UpSampleBlur");
+        mBlendKernel   = mPassShader.FindKernel("LinearLerp");
     }
 
     public void Setup(DualKawaseBlur volumeComponent)
@@ -51,6 +51,13 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
         {
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
+            
+            // figure out blur iterations and blending ratio
+            // ---------------------------------------------
+            float blurFactor = mVolumeComponent.m_BlurRadius.value * mVolumeComponent.m_BlurIntensity.value + 1.0f;
+            float blurAmount = Mathf.Log(blurFactor, 2.0f);
+            int   blurIterations = Mathf.FloorToInt(blurAmount);
+            float ratio = blurAmount - blurIterations;
 
             // create lists to store temporary textures and sizes
             // --------------------------------------------------
@@ -64,13 +71,6 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
             // keep track
             textureIDs.Add(finalTextureID);
             textureSizes.Add(mOriginalSize);
-            
-            // figure out blur iterations and blending ratio
-            // ---------------------------------------------
-            float blurFactor = mVolumeComponent.m_BlurRadius.value * mVolumeComponent.m_BlurIntensity.value + 1.0f;
-            float blurAmount = Mathf.Log(blurFactor, 2.0f);
-            int   blurIterations = Mathf.FloorToInt(blurAmount);
-            float ratio = blurAmount - blurIterations;
             
             // downsample blur
             // ---------------
@@ -104,19 +104,19 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
             // --------
             if (blurIterations != 0)
             {
-                // create an intermediate texture for linear lerp
-                // ----------------------------------------------
-                int intermediateTextureID = Shader.PropertyToID(kBlurTextureName + blurIterations + 1);
-                Vector2Int intermediateTextureSize = textureSizes[blurIterations];
-                mDescriptor.width = intermediateTextureSize.x;
-                mDescriptor.height = intermediateTextureSize.y;
-                cmd.GetTemporaryRT(intermediateTextureID, mDescriptor);
+                // create an intermediate texture for linear lerp,
+                // which has the same size with the last second downsample texture
+                // ---------------------------------------------------------------
+                int tempTextureID = Shader.PropertyToID(kBlurTextureName + (blurIterations + 1));
+                Vector2Int tempTextureSize = textureSizes[blurIterations];
+                mDescriptor.width = tempTextureSize.x;
+                mDescriptor.height = tempTextureSize.y;
+                cmd.GetTemporaryRT(tempTextureID, mDescriptor);
 
                 for (int i = blurIterations + 1; i >= 1; i--)
                 {
                     int sourceID = textureIDs[i];
-                    Vector2Int sourceSize = textureSizes[i];
-                    int targetID = i == blurIterations + 1 ? intermediateTextureID : textureIDs[i - 1];
+                    int targetID = i == blurIterations + 1 ? tempTextureID : textureIDs[i - 1];
                     Vector2Int targetSize = textureSizes[i - 1];
                     
                     // do the kawase blur
@@ -127,8 +127,9 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
                     // ------------------
                     if (i == blurIterations + 1)
                     {
-                        Linear(cmd, textureIDs[i - 1], intermediateTextureID, targetSize, ratio);
-                        (intermediateTextureID, textureIDs[i - 1]) = (textureIDs[i - 1], intermediateTextureID);
+                        Linear(cmd, textureIDs[i - 1], tempTextureID, targetSize, ratio);
+                        // swap the texture IDs
+                        (tempTextureID, textureIDs[i - 1]) = (textureIDs[i - 1], tempTextureID);
                     }
                     
                     // release current temporary texture
@@ -138,7 +139,7 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
                 
                 // release the intermediate texture
                 // --------------------------------
-                cmd.ReleaseTemporaryRT(intermediateTextureID);
+                cmd.ReleaseTemporaryRT(tempTextureID);
             }
             else
             {
@@ -148,7 +149,14 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
             
             // blit the final result
             // ---------------------
-            cmd.Blit(finalTextureID, mCameraColorTexture.nameID);
+            if (mSettings.m_CopyToFrameBuffer)
+            {
+                cmd.Blit(finalTextureID, mCameraColorTexture.nameID);
+            }
+            else
+            {
+                cmd.SetGlobalTexture(mSettings.m_TargetTextureName, finalTextureID);
+            }
             cmd.ReleaseTemporaryRT(finalTextureID);
         }
         
@@ -162,95 +170,80 @@ public class DualKawaseBlurRenderPass : ScriptableRenderPass
         return new Vector4(size.x, size.y, 1.0f / size.x, 1.0f / size.y);
     }
     
-    private void DownSampleBlur(CommandBuffer cmd, 
-        RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int targetSize)
+    private void DownSampleBlur(CommandBuffer cmd, RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int targetSize)
     {
         // pass data to shader
         // -------------------
-        cmd.SetComputeTextureParam(mPassShader, mDownSampleBlurKernel, _SourceTexture, source);
-        cmd.SetComputeTextureParam(mPassShader, mDownSampleBlurKernel, RWTargetTextureID, target);
-        cmd.SetComputeVectorParam(mPassShader, TargetSizeID, GetTextureSizeParams(targetSize));
-        cmd.SetComputeFloatParam(mPassShader, OffsetID, 1);
+        cmd.SetComputeTextureParam(mPassShader, mDownSampleKernel, _SourceTexture, source);
+        cmd.SetComputeTextureParam(mPassShader, mDownSampleKernel, _TargetTexture, target);
+        cmd.SetComputeVectorParam(mPassShader, _TargetSize, GetTextureSizeParams(targetSize));
         
         // dispatch shader
         // ---------------
-        mPassShader.GetKernelThreadGroupSizes(mDownSampleBlurKernel, out uint x, out uint y, out uint _);
-        cmd.DispatchCompute(mPassShader, mDownSampleBlurKernel,
+        mPassShader.GetKernelThreadGroupSizes(mDownSampleKernel, out uint x, out uint y, out uint _);
+        cmd.DispatchCompute(mPassShader, mDownSampleKernel,
             Mathf.CeilToInt((float)targetSize.x / x),
             Mathf.CeilToInt((float)targetSize.y / y),
             1);
     }
 
-    private void UpSampleBlur(CommandBuffer cmd,
-        RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int targetSize)
+    private void UpSampleBlur(CommandBuffer cmd, RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int targetSize)
     {
         // pass data to shader
         // -------------------
-        cmd.SetComputeTextureParam(mPassShader, mUpSampleBlurKernel, _SourceTexture, source);
-        cmd.SetComputeTextureParam(mPassShader, mUpSampleBlurKernel, RWTargetTextureID, target);
-        cmd.SetComputeVectorParam(mPassShader, TargetSizeID, GetTextureSizeParams(targetSize));
-        cmd.SetComputeFloatParam(mPassShader, OffsetID, 1);
+        cmd.SetComputeTextureParam(mPassShader, mUpSampleKernel, _SourceTexture, source);
+        cmd.SetComputeTextureParam(mPassShader, mUpSampleKernel, _TargetTexture, target);
+        cmd.SetComputeVectorParam(mPassShader, _TargetSize, GetTextureSizeParams(targetSize));
 
         // dispatch shader
         // ---------------
-        mPassShader.GetKernelThreadGroupSizes(mUpSampleBlurKernel, out uint x, out uint y, out uint _);
+        mPassShader.GetKernelThreadGroupSizes(mUpSampleKernel, out uint x, out uint y, out uint _);
         int threadGroupX = Mathf.CeilToInt((float)targetSize.x / x);
         int threadGroupY = Mathf.CeilToInt((float)targetSize.y / y);
-        cmd.DispatchCompute(mPassShader, mUpSampleBlurKernel, threadGroupX, threadGroupY, 1);
+        cmd.DispatchCompute(mPassShader, mUpSampleKernel, threadGroupX, threadGroupY, 1);
     }
 
-    private void Linear(CommandBuffer cmd,
-        RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int sourceSize, float offset)
+    private void Linear(CommandBuffer cmd, RenderTargetIdentifier source, RenderTargetIdentifier target, Vector2Int sourceSize, float ratio)
     {
         // pass data to shader
         // -------------------
-        cmd.SetComputeTextureParam(mPassShader, mLinearLerpKernel, _SourceTexture, source);
-        cmd.SetComputeTextureParam(mPassShader, mLinearLerpKernel, RWTargetTextureID, target);
-        cmd.SetComputeVectorParam(mPassShader, _SourceSize, GetTextureSizeParams(sourceSize));
-        cmd.SetComputeFloatParam(mPassShader, OffsetID, offset);
+        cmd.SetComputeTextureParam(mPassShader, mBlendKernel, _SourceTexture, source);
+        cmd.SetComputeTextureParam(mPassShader, mBlendKernel, _TargetTexture, target);
+        cmd.SetComputeFloatParam(mPassShader, _BlendRatio, ratio);
         
         // dispatch shader
         // ---------------
-        mPassShader.GetKernelThreadGroupSizes(mLinearLerpKernel, out uint x, out uint y, out uint _);
+        mPassShader.GetKernelThreadGroupSizes(mBlendKernel, out uint x, out uint y, out uint _);
         int threadGroupX = Mathf.CeilToInt((float)sourceSize.x / x);
         int threadGroupY = Mathf.CeilToInt((float)sourceSize.y / y);
-        cmd.DispatchCompute(mPassShader, mLinearLerpKernel, threadGroupX, threadGroupY, 1);
+        cmd.DispatchCompute(mPassShader, mBlendKernel, threadGroupX, threadGroupY, 1);
     }
-
-    public void Dispose()
-    {
-        mTemporaryColorTexture?.Release();
-    }
-
+    
     // profiling related
     // -----------------
-    private ProfilingSampler     mProfilingSampler;
+    private ProfilingSampler mProfilingSampler;
+    // feature related
+    // ---------------
+    private DualKawaseBlur         mVolumeComponent;
+    private DualKawaseBlurSettings mSettings;
     // pass shader related
     // -------------------
     private ComputeShader mPassShader;
-    private int mDownSampleBlurKernel;
-    private int mUpSampleBlurKernel;
-    private int mLinearLerpKernel;
-    // volume component related
-    // ------------------------
-    private DualKawaseBlur mVolumeComponent;
+    private int           mDownSampleKernel;
+    private int           mUpSampleKernel;
+    private int           mBlendKernel;
     // render pass related
     // -------------------
-    private RTHandle mCameraColorTexture;
-    private RTHandle mTemporaryColorTexture;
+    private RTHandle                mCameraColorTexture;
     private RenderTextureDescriptor mDescriptor;
-    private Vector2Int mOriginalSize;
-
-    private DualKawaseBlurSettings mSettings;
-
+    private Vector2Int              mOriginalSize;
     // constants
     // ---------
     private const string kBlurTextureName = "_BlurTexture";
     // cached shader property IDs
     // --------------------------
     private static readonly int _SourceTexture = Shader.PropertyToID("_SourceTexture");
-    private static readonly int _SourceSize = Shader.PropertyToID("_SourceSize");
-    private static readonly int TargetSizeID = Shader.PropertyToID("_TargetSize");
-    private static readonly int OffsetID = Shader.PropertyToID("_Offset");
-    private static readonly int RWTargetTextureID = Shader.PropertyToID("_RW_TargetTexture");
+    private static readonly int _TargetTexture = Shader.PropertyToID("_TargetTexture");
+    private static readonly int _TargetSize = Shader.PropertyToID("_TargetSize");
+    private static readonly int _BlendRatio = Shader.PropertyToID("_BlendRatio");
 }
